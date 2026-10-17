@@ -239,15 +239,7 @@ export const AutoGradingModal = ({ assignment, courseCode, isOpen, onClose, onRu
     if (sessions.length > 0) return; // already loaded
     setLoadingSessions(true);
     try {
-      // Resolve numeric courseId
-      let courseId: string | number = courseCode;
-      try {
-        const courseRes = await fetch(`/api/courses/${courseCode}`);
-        const courseData = await courseRes.json();
-        courseId = courseData?.data?.id || courseCode;
-      } catch { /* use courseCode fallback */ }
-
-      const res = await fetch(`/api/assignments/course-materials?courseId=${courseId}`);
+      const res = await fetch(`/api/assignments/course-materials?assignmentId=${assignment.id}`);
       const data = await res.json();
       if (data.success) {
         setSessions(data.data);

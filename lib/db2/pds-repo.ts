@@ -476,6 +476,15 @@ export async function getFlagByComparisonAndSubmission(
   return rows[0] ?? null;
 }
 
+/** Resolve ownership from the stored flag, never from caller-supplied IDs. */
+export async function getFlagById(flagId: string, tables: PdsTableSet = PDS_TABLES_OPENAI) {
+  const rows = await queryAux<{ id: string; submission_id: string }>(
+    `SELECT id, submission_id FROM ${tables.flags} WHERE id = $1 LIMIT 1`,
+    [flagId]
+  );
+  return rows[0] ?? null;
+}
+
 export async function updateFlag(flagId: string, fields: FlagUpdate, tables: PdsTableSet = PDS_TABLES_OPENAI) {
   const { assignments, values } = buildUpdateClause(fields);
   const rows = await queryAux(

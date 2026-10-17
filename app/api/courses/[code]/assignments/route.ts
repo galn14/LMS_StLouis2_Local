@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/auth';
+import {
+  canManageCourse,
+  forbiddenResponse,
+  getSessionUser,
+  isAdminRole,
+  isStudentRole,
+  isTeacherRole,
+  unauthorizedResponse,
+} from '@/lib/auth/course-access';
 import { prisma } from '@/lib/prisma';
 
 export async function GET(
@@ -8,15 +15,19 @@ export async function GET(
   { params }: { params: Promise<{ code: string }> }
 ) {
   try {
-    const session = await getServerSession(authOptions);
-
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const user = await getSessionUser();
+    if (!user) return unauthorizedResponse();
+    if (!isAdminRole(user.role) && !isTeacherRole(user.role) && !isStudentRole(user.role)) return forbiddenResponse();
 
     const { code } = await params;
     const courseCode = code;
-    const isTeacher = session.user.role === 'TEACHER' || session.user.role === 'ADMIN';
+    // A course code can be offered to several classes. Scope the database read
+    // to the caller's offerings, rather than granting access to the entire code.
+    const offeringScope = isAdminRole(user.role)
+      ? {}
+      : isTeacherRole(user.role)
+        ? { teacher_id: user.id }
+        : { enrollments: { some: { student_id: user.id } } };
 
     const courseData = await prisma.courses.findUnique({
       where: {
@@ -24,7 +35,9 @@ export async function GET(
       },
       include: {
         class_courses: {
+          where: offeringScope,
           include: {
+            enrollments: { where: { student_id: user.id }, select: { id: true } },
             sessions: {
               include: {
                 assignments: {
@@ -39,6 +52,7 @@ export async function GET(
                       },
                     },
                     assignment_submissions: {
+                      where: isStudentRole(user.role) ? { student_id: user.id } : {},
                       include: {
                         app_user_assignment_submissions_student_idToapp_user: {
                           select: {
@@ -64,8 +78,15 @@ export async function GET(
       return NextResponse.json({ error: 'Course not found' }, { status: 404 });
     }
 
+    const allowedOfferings = courseData.class_courses.filter(classCourse =>
+      canManageCourse(user, [classCourse.teacher_id]) ||
+      (isStudentRole(user.role) && classCourse.enrollments.length > 0)
+    );
+    if (!isAdminRole(user.role) && allowedOfferings.length === 0) return forbiddenResponse();
+
     const allAssignments = [];
-    for (const classCourse of courseData.class_courses) {
+    for (const classCourse of allowedOfferings) {
+      const isManager = canManageCourse(user, [classCourse.teacher_id]);
       for (const session of classCourse.sessions) {
         for (const assignment of session.assignments) {
           const transformedAssignment = {
@@ -98,11 +119,13 @@ export async function GET(
               options: question.assignment_question_options.map(option => ({
                 id: option.id,
                 option_text: option.option_text,
-                ...(isTeacher && { is_correct: option.is_correct }),
+                ...(isManager && { is_correct: option.is_correct }),
                 order_number: option.order_number,
               })),
             })),
-            submissions: assignment.assignment_submissions.map(submission => ({
+            submissions: assignment.assignment_submissions
+              .filter(submission => isManager || submission.student_id === user.id)
+              .map(submission => ({
               id: submission.id,
               student: {
                 id: submission.app_user_assignment_submissions_student_idToapp_user.id,

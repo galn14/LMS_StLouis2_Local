@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/auth';
 import { prisma } from '@/lib/prisma';
+import { isAdminRole, isTeacherRole, requireCourseManager } from '@/lib/auth/course-access';
 import {
   getAcsAssignmentByAssignmentId,
   getUploadedFilesByResourceIds,
@@ -33,7 +34,7 @@ export async function POST(request: NextRequest) {
     });
 
     const isInstructor = userDetails?.app_user_role?.some(
-      role => (role.enumeration?.name === 'TEACHER' || role.enumeration?.name === 'ADMIN') && role.is_active
+      role => (isTeacherRole(role.enumeration?.name) || isAdminRole(role.enumeration?.name)) && role.is_active
     );
 
     if (!isInstructor) {
@@ -48,25 +49,47 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Missing required fields' }, { status: 400 });
     }
 
+    const assignmentKey = Number(assignmentId);
+    if (!Number.isSafeInteger(assignmentKey) || assignmentKey <= 0) {
+      return NextResponse.json({ success: false, error: 'Invalid assignmentId' }, { status: 400 });
+    }
+    const assignment = await prisma.assignments.findUnique({
+      where: { id: assignmentKey },
+      select: {
+        sessions: { select: {
+          class_course_id: true,
+          class_courses: { select: { teacher_id: true, course_id: true, courses: { select: { course_code: true } } } },
+        } },
+      },
+    });
+    const classCourse = assignment?.sessions?.class_courses;
+    const access = await requireCourseManager(async () => classCourse ? [classCourse.teacher_id] : []);
+    if (!access.ok) return access.response;
+    const classCourseId = assignment?.sessions?.class_course_id;
+    if (!classCourse || classCourseId == null || classCourse.course_id == null) {
+      return NextResponse.json({ success: false, error: 'Assignment course not found' }, { status: 404 });
+    }
+    // The UI normally sends a numeric course id and falls back to its code.
+    // Both must match the assignment's persisted parent, never define it.
+    if (String(courseId) !== String(classCourse.course_id) && String(courseId) !== classCourse.courses?.course_code) {
+      return NextResponse.json({ success: false, error: 'Course does not match assignment' }, { status: 400 });
+    }
+
     // resourceIds is required — user must explicitly choose which materials to use
-    const selectedResourceIds: number[] = Array.isArray(resourceIds) ? resourceIds : [];
+    const selectedResourceIds: number[] = Array.isArray(resourceIds) ? [...new Set<number>(resourceIds)] : [];
     if (selectedResourceIds.length === 0) {
       return NextResponse.json(
         { success: false, error: 'No materials selected', details: 'Select at least one course material file to use as grading reference.' },
         { status: 422 }
       );
     }
-
-    const provider = resolveProviderName();
-    const existingAssignment =
-      provider === 'local'
-        ? await getAcsLocalAssignmentByAssignmentId(assignmentId.toString())
-        : await getAcsAssignmentByAssignmentId(assignmentId.toString());
-    const isRerun = Boolean(existingAssignment);
+    if (selectedResourceIds.some(id => !Number.isSafeInteger(id) || id <= 0)) {
+      return NextResponse.json({ success: false, error: 'Invalid resourceIds' }, { status: 400 });
+    }
 
     // 4. Fetch only the selected resources from LMS DB
     const courseResources = await prisma.resources.findMany({
-      where: { id: { in: selectedResourceIds } },
+      where: { id: { in: selectedResourceIds }, sessions: { class_course_id: classCourseId } },
       select: { id: true, file_url: true, file_name: true, file_type: true },
     });
 
@@ -76,6 +99,19 @@ export async function POST(request: NextRequest) {
         { status: 422 }
       );
     }
+    if (courseResources.length !== selectedResourceIds.length) {
+      return NextResponse.json(
+        { success: false, error: 'Every selected resource must belong to the assignment class course' },
+        { status: 422 }
+      );
+    }
+
+    const provider = resolveProviderName();
+    const existingAssignment =
+      provider === 'local'
+        ? await getAcsLocalAssignmentByAssignmentId(assignmentKey.toString())
+        : await getAcsAssignmentByAssignmentId(assignmentKey.toString());
+    const isRerun = Boolean(existingAssignment);
 
     const rerunFieldsFor = (rerun: boolean) =>
       rerun
@@ -84,7 +120,7 @@ export async function POST(request: NextRequest) {
 
     if (provider === 'local') {
       const corpus = await createLocalCorpus({
-        assignmentId: assignmentId.toString(),
+        assignmentId: assignmentKey.toString(),
         courseId: courseId.toString(),
         createdBy: session.user.id,
         resources: courseResources.map(r => ({
@@ -106,7 +142,7 @@ export async function POST(request: NextRequest) {
       }
 
       const localRecord = await upsertAcsLocalAssignment({
-        assignment_id: assignmentId.toString(),
+        assignment_id: assignmentKey.toString(),
         course_id: courseId.toString(),
         corpus_id: corpus.corpus_id,
         rubric,
@@ -240,7 +276,7 @@ export async function POST(request: NextRequest) {
     let data;
     try {
       data = await upsertAcsAssignment({
-        assignment_id: assignmentId.toString(),
+        assignment_id: assignmentKey.toString(),
         course_id: courseId.toString(),
         vector_store_id: vectorStore.id,
         rubric,
@@ -262,7 +298,7 @@ export async function POST(request: NextRequest) {
       try {
         await insertUploadedFiles(
           newFileRecords.map(rec => ({
-            assignment_id: assignmentId.toString(),
+            assignment_id: assignmentKey.toString(),
             resource_id: rec.resource_id,
             file_id: rec.file_id,
             filename: rec.filename,
