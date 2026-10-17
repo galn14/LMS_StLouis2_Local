@@ -64,3 +64,7 @@ __pycache__/
 
 .env*
 !.env.example
+
+# never commit: literal password test script, runtime uploads
+temp_hash.js
+/public/uploads/
