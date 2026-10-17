@@ -20,9 +20,15 @@ the grading modal's AI-results read even when no AI grading job exists.
 ## Run
 
 ```bash
-npx playwright test                 # seeds the DB, starts the app, runs all specs
-npx playwright show-report          # HTML report; traces are kept for failures
+npx playwright test --grep-invert "Test group"                          # local default: next dev
+E2E_SERVER_MODE=production npx playwright test --grep-invert "Test group"  # next build + next start (CI default)
+npx playwright show-report          # HTML report; traces are kept for failed and retried attempts
 ```
+
+`seed.spec.ts` is the Playwright agents' empty seed file; `--grep-invert "Test group"` skips it.
+Production mode builds into `.next` (it replaces a local dev build cache). The app server's output is
+written to `test-reports/e2e-webserver.log`. With `CI` set, a failed test is retried once and a test
+that only passes on the retry is reported as **flaky and fails the run** (`failOnFlakyTests`).
 
 If Playwright's pinned Chromium is not installed, point it at one you already have:
 `E2E_CHROMIUM_PATH=/path/to/chrome-headless-shell npx playwright test`.

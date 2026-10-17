@@ -26,9 +26,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 20
           cache: npm
@@ -50,7 +50,7 @@ jobs:
 
       - name: Upload coverage report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: coverage
           path: coverage/
@@ -65,9 +65,13 @@ jobs:
     env:
       NEXTAUTH_SECRET: ci-build-only-not-a-secret
       NEXT_TELEMETRY_DISABLED: '1'
+      # lib/database.ts refuses to load without explicit DB configuration, and `next build` imports
+      # /api/db/test while collecting page data. This URL is never connected to (port 1); verified
+      # locally on 2026-10-17: build exits 1 without it and 0 with it.
+      DATABASE_URL: postgresql://build:build@127.0.0.1:1/build_placeholder
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
         with:
           node-version: 20
           cache: npm
@@ -96,9 +100,12 @@ jobs:
       E2E_DB_USER: postgres
       E2E_DB_PASSWORD: e2e-ci-only
       NEXT_TELEMETRY_DISABLED: '1'
+      # playwright.config.ts builds the app inside this job with the test-database environment
+      # (`next build`) and serves it with `next start`; it also retries once and fails on flaky tests.
+      E2E_SERVER_MODE: production
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
         with:
           node-version: 20
           cache: npm
@@ -112,15 +119,18 @@ jobs:
       # seed.spec.ts is the Playwright agents' empty seed file, not a test.
       - name: Run E2E
         run: npx playwright test --grep-invert "Test group"
-      - name: Upload Playwright report, JSON results and failure traces
+      # Uploaded on success and failure: HTML report, JSON results, the app server log
+      # (test-reports/e2e-webserver.log) and the traces/screenshots of failed or retried attempts.
+      - name: Upload Playwright report, JSON results, server log and traces
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: playwright
           path: |
             playwright-report/
             test-reports/
             test-results/
+          if-no-files-found: warn
           retention-days: 14
 
   secrets:
@@ -128,15 +138,23 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: github.event_name != 'schedule'
+    # Read-only: the action lists the PR's commits; PR comments are disabled, so no write scope.
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       # Scans only the commits in the PR/push, so the pre-existing leak in
-      # history (DC-14) does not block every run; it needs rotation instead.
-      - uses: gitleaks/gitleaks-action@v2
+      # history (DC-14/DC-21) does not block every run; it needs an owner decision instead.
+      # v3 runs on Node 24 (v2 declared Node 20, which GitHub-hosted runners removed on 2026-09-23).
+      - uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Required only for organization-owned repositories; empty for personal accounts.
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+          GITLEAKS_ENABLE_COMMENTS: 'false'
 
   audit:
     name: Dependency audit
@@ -144,8 +162,8 @@ jobs:
     timeout-minutes: 10
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
         with:
           node-version: 20
           cache: npm
