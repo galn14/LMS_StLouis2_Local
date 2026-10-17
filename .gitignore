@@ -68,3 +68,15 @@ __pycache__/
 # never commit: literal password test script, runtime uploads
 temp_hash.js
 /public/uploads/
+
+# Playwright
+/test-results/
+/playwright-report/
+/test-reports/
+
+# AI assistant docs & generated artifacts (kept locally, never committed)
+CLAUDE.md
+GEMINI.md
+/.agents/
+/specs/
+skills-lock.json
