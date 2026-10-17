@@ -1,4 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+import {
+  canManageCourse,
+  requireCourseManager,
+  requireSessionMember,
+  teacherIdsForSession,
+} from '@/lib/auth/course-access';
 import { prisma } from '@/lib/prisma';
 
 // GET /api/courses/[code]/sessions/[sessionId]/assignments
@@ -9,6 +15,13 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     if (isNaN(sessionId)) {
       return NextResponse.json({ error: 'Invalid session ID' }, { status: 400 });
     }
+
+    // FR-ASG-5 / Q-07: same rules as the assignment detail route. Course members
+    // may list; only the course teacher and admins see answer keys and every submission.
+    const member = await requireSessionMember(sessionId, { courseCode: resolvedParams.code });
+    if (!member.ok) return member.response;
+    const user = member.user;
+    const isManager = canManageCourse(user, await teacherIdsForSession(sessionId));
 
     const assignments = await prisma.assignments.findMany({
       where: {
@@ -77,22 +90,24 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         options: question.assignment_question_options.map(option => ({
           id: option.id,
           option_text: option.option_text,
-          is_correct: option.is_correct,
+          ...(isManager ? { is_correct: option.is_correct } : {}),
           order_number: option.order_number,
         })),
       })),
-      submissions: assignment.assignment_submissions.map(submission => ({
-        id: submission.id,
-        student: {
-          id: submission.app_user_assignment_submissions_student_idToapp_user.id,
-          nama_lengkap: submission.app_user_assignment_submissions_student_idToapp_user.nama_lengkap,
-          user_name: submission.app_user_assignment_submissions_student_idToapp_user.user_name,
-        },
-        attempt_number: submission.attempt_number,
-        submitted_at: submission.submitted_at?.toISOString(),
-        total_score: submission.total_score ? parseFloat(submission.total_score.toString()) : null,
-        status_id: submission.status_id,
-      })),
+      submissions: assignment.assignment_submissions
+        .filter(submission => isManager || submission.student_id === user.id)
+        .map(submission => ({
+          id: submission.id,
+          student: {
+            id: submission.app_user_assignment_submissions_student_idToapp_user.id,
+            nama_lengkap: submission.app_user_assignment_submissions_student_idToapp_user.nama_lengkap,
+            user_name: submission.app_user_assignment_submissions_student_idToapp_user.user_name,
+          },
+          attempt_number: submission.attempt_number,
+          submitted_at: submission.submitted_at?.toISOString(),
+          total_score: submission.total_score ? parseFloat(submission.total_score.toString()) : null,
+          status_id: submission.status_id,
+        })),
     }));
 
     return NextResponse.json({
@@ -102,7 +117,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   } catch (error) {
     console.error('Error fetching assignments:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch assignments', details: error instanceof Error ? error.message : 'Unknown error' },
+      { error: 'Failed to fetch assignments' },
       { status: 500 }
     );
   }
@@ -116,6 +131,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (isNaN(sessionId)) {
       return NextResponse.json({ error: 'Invalid session ID' }, { status: 400 });
     }
+    // Q-07: only the course teacher or an admin may create (and publish) assignments.
+    const access = await requireCourseManager(() => teacherIdsForSession(sessionId));
+    if (!access.ok) return access.response;
 
     const body = await request.json();
     const {
@@ -129,16 +147,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       attempts_allowed,
       show_results,
       is_published,
-      created_by,
       questions,
     } = body;
 
-    // Validate required fields
-    if (!title || !assignment_type_id || !created_by) {
-      return NextResponse.json(
-        { error: 'Missing required fields: title, assignment_type_id, created_by' },
-        { status: 400 }
-      );
+    // Validate required fields. created_by is always the session user (Q-12); a body value is ignored.
+    if (!title || !assignment_type_id) {
+      return NextResponse.json({ error: 'Missing required fields: title, assignment_type_id' }, { status: 400 });
     }
 
     // Create assignment with questions in a transaction
@@ -157,7 +171,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           attempts_allowed: parseInt(attempts_allowed) || 1,
           show_results: Boolean(show_results),
           is_published: Boolean(is_published),
-          created_by: parseInt(created_by),
+          created_by: access.user.id,
         },
       });
 
@@ -202,7 +216,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   } catch (error) {
     console.error('Error creating assignment:', error);
     return NextResponse.json(
-      { error: 'Failed to create assignment', details: error instanceof Error ? error.message : 'Unknown error' },
+      { error: 'Failed to create assignment' },
       { status: 500 }
     );
   }

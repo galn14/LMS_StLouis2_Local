@@ -554,9 +554,26 @@ describe('Q-12 identity from the session: grade', () => {
 const FILE_PATH = ['courses', 'MAT001', 'sessions', '700', 'f.pdf'];
 const getFile = (segments: string[] = FILE_PATH) =>
   filesRoute.GET(buildRequest(`/api/files/${segments.join('/')}`), routeContext({ path: segments }));
-const upload = (fields: Record<string, string>, fileName = 'notes.pdf', type = 'application/pdf') => {
+// A6: the upload route checks the file's leading bytes, so each fixture starts with real ones.
+const MAGIC: Record<string, number[]> = {
+  pdf: [...Buffer.from('%PDF-1.4')],
+  doc: [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1],
+  docx: [0x50, 0x4b, 0x03, 0x04],
+  jpg: [0xff, 0xd8, 0xff, 0xe0],
+  jpeg: [0xff, 0xd8, 0xff, 0xe0],
+  png: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+  gif: [...Buffer.from('GIF89a')],
+};
+const bytesFor = (fileName: string) =>
+  new Uint8Array(MAGIC[fileName.split('.').pop()!.toLowerCase()] ?? [...Buffer.from('<html></html>')]);
+const upload = (
+  fields: Record<string, string>,
+  fileName = 'notes.pdf',
+  type = 'application/pdf',
+  content: BlobPart = bytesFor(fileName)
+) => {
   const form = new FormData();
-  form.set('file', new File(['%PDF-1.4'], fileName, { type }));
+  form.set('file', new File([content], fileName, { type }));
   for (const [k, v] of Object.entries(fields)) form.set(k, v);
   return uploadRoute.POST(buildRequest('/api/upload', { method: 'POST', form }));
 };
@@ -663,6 +680,7 @@ describe('FR-FILE-1..4 / Q-08: uploads', () => {
     ['run.exe', 'application/octet-stream'],
     ['drawing.svg', 'image/svg+xml'],
     ['slides.pptx', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'],
+    ['README', 'text/plain'],
   ])('FR-FILE-2: %s is rejected with 415', async (name, type) => {
     seedWorld('teacherOwner');
     expect((await upload(FIELDS, name, type)).status).toBe(415);
@@ -682,11 +700,80 @@ describe('FR-FILE-1..4 / Q-08: uploads', () => {
     expect((await upload(FIELDS, name, type)).status).toBe(200);
   });
 
+  // A6 / Q-08: the extension alone is not trusted; the content must match it.
+  test.each([
+    ['HTML renamed to .pdf', 'notes.pdf', 'application/pdf', '<html><script>alert(1)</script></html>'],
+    ['a PDF renamed to .png', 'chart.png', 'image/png', '%PDF-1.4'],
+    ['a Windows executable renamed to .docx', 'essay.docx', '', 'MZ\x90\x00'],
+    ['an empty .jpg', 'photo.jpg', 'image/jpeg', ''],
+  ])('FR-FILE-2 [A6]: %s is rejected with 415 and nothing is written', async (_label, name, type, content) => {
+    seedWorld('teacherOwner');
+    expect((await upload(FIELDS, name, type, content)).status).toBe(415);
+    expect(writeFile).not.toHaveBeenCalled();
+  });
+
+  test('FR-FILE-2 [A6]: a declared MIME type that contradicts the extension => 415', async () => {
+    seedWorld('teacherOwner');
+    expect((await upload(FIELDS, 'notes.pdf', 'text/html')).status).toBe(415);
+    expect(writeFile).not.toHaveBeenCalled();
+  });
+
+  test.each(['', 'application/octet-stream'])(
+    'FR-FILE-2 [A6]: a generic declared type (%p) falls back to the content check',
+    async type => {
+      seedWorld('teacherOwner');
+      expect((await upload(FIELDS, 'essay.doc', type)).status).toBe(200);
+    }
+  );
+
+  test('FR-FILE-1 [A6]: a file over 10 MB => 413 and nothing is written', async () => {
+    seedWorld('teacherOwner');
+    const big = new Uint8Array(10 * 1024 * 1024 + 1);
+    big.set(MAGIC.pdf);
+    const res = await upload(FIELDS, 'big.pdf', 'application/pdf', big);
+    expect(res.status).toBe(413);
+    expect(writeFile).not.toHaveBeenCalled();
+  });
+
+  test('FR-FILE-1: a file of exactly 10 MB is accepted', async () => {
+    seedWorld('teacherOwner');
+    const max = new Uint8Array(10 * 1024 * 1024);
+    max.set(MAGIC.pdf);
+    expect((await upload(FIELDS, 'max.pdf', 'application/pdf', max)).status).toBe(200);
+  });
+
+  test('FR-FILE-1: a request without a file => 400', async () => {
+    seedWorld('teacherOwner');
+    const form = new FormData();
+    for (const [k, v] of Object.entries(FIELDS)) form.set(k, v);
+    const res = await uploadRoute.POST(buildRequest('/api/upload', { method: 'POST', form }));
+    expect(res.status).toBe(400);
+  });
+
+  test('a directory that cannot be created => 500 and nothing is written', async () => {
+    seedWorld('teacherOwner');
+    (mkdir as jest.Mock).mockRejectedValueOnce(new Error('EACCES'));
+    const res = await upload(FIELDS);
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toBe('Failed to create upload directory');
+    expect(writeFile).not.toHaveBeenCalled();
+  });
+
+  test('NFR [A7]: a write failure => 500 without internal error details', async () => {
+    seedWorld('teacherOwner');
+    (writeFile as jest.Mock).mockRejectedValueOnce(new Error("EACCES: permission denied, open '/srv/app/public/x'"));
+    const res = await upload(FIELDS);
+    const json = await res.json();
+    expect(res.status).toBe(500);
+    expect(json).not.toHaveProperty('details');
+  });
+
   test.each([
     ['context with ".."', { ...FIELDS, context: '../../../../../../escaped' }],
     ['courseCode with ".."', { courseCode: '../..', sessionId: '700' }],
     ['non-numeric sessionId', { courseCode: 'MAT001', sessionId: '7/../../x' }],
     ['missing courseCode', { sessionId: '700' }],
+    ['missing sessionId', { courseCode: 'MAT001' }],
   ])('FR-FILE-3 [DC-10]: %s → 400 and no directory is created', async (_label, fields) => {
     seedWorld('admin');
     expect((await upload(fields as Record<string, string>)).status).toBe(400);

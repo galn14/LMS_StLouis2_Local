@@ -114,7 +114,6 @@ export async function POST(
     return NextResponse.json(
       {
         error: 'Failed to grade assignment',
-        details: error instanceof Error ? error.message : 'Unknown error',
       },
       { status: 500 }
     );
@@ -139,9 +138,13 @@ export async function GET(
     const submissionId = url.searchParams.get('submission_id');
 
     if (submissionId) {
+      const id = parseInt(submissionId);
+      if (isNaN(id)) {
+        return NextResponse.json({ error: 'Invalid submission ID' }, { status: 400 });
+      }
       // Get specific submission for grading
       const submission = await prisma.assignment_submissions.findUnique({
-        where: { id: parseInt(submissionId) },
+        where: { id },
         include: {
           assignment_answers: {
             include: {
@@ -163,7 +166,9 @@ export async function GET(
         },
       });
 
-      if (!submission) {
+      // Q-07 / Q-10: access was checked for the URL's assignment, so a submission
+      // of any other assignment is treated as missing (no existence leak).
+      if (!submission || submission.assignment_id !== assignmentId) {
         return NextResponse.json({ error: 'Submission not found' }, { status: 404 });
       }
 
@@ -224,7 +229,6 @@ export async function GET(
     return NextResponse.json(
       {
         error: 'Failed to fetch grading data',
-        details: error instanceof Error ? error.message : 'Unknown error',
       },
       { status: 500 }
     );

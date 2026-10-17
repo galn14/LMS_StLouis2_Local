@@ -14,6 +14,8 @@
  *          --ids=<file>        assignment/question ids (default ingest-ids.json); v3 uses cloned setups
  *          --scale=native      the rubric max_score is the native max, so the model scores natively
  *          --exclude=A,B       skip these student codes (e.g. answers shown to the model as examples)
+ *          --shard=i/n         grade only every n-th answer starting at i, so n harness processes
+ *                              (each with its own BASE_URL) can grade one set in parallel
  *
  * Native conversion (config v1): native = round(rawScore / 100 * max_score).
  */
@@ -42,6 +44,8 @@ const IDS = path.resolve(ROOT, arg('ids', DEFAULT_IDS));
 const SCALE = arg('scale', 'percent');
 if (!['percent', 'native'].includes(SCALE)) throw new Error(`--scale must be percent or native, got ${SCALE}`);
 const EXCLUDE = new Set((arg('exclude', '') || '').split(',').filter(Boolean));
+const [SHARD_I, SHARD_N] = (arg('shard', '0/1') || '0/1').split('/').map(Number);
+if (!(SHARD_N >= 1 && SHARD_I >= 0 && SHARD_I < SHARD_N)) throw new Error('--shard must look like i/n with 0 <= i < n');
 
 // ── cookie jar + api ──────────────────────────────────────────────────────────
 const jar = new Map();
@@ -92,7 +96,7 @@ async function main() {
   const subjects = (ONLY ? [ONLY] : Object.keys(dataset));
   const out = {
     config_label: LABEL, provider, set: SET, runs: RUNS, generated_at: new Date().toISOString(),
-    ids_file: path.relative(ROOT, IDS), scale: SCALE, excluded: [...EXCLUDE], subjects: {},
+    ids_file: path.relative(ROOT, IDS), scale: SCALE, excluded: [...EXCLUDE], shard: `${SHARD_I}/${SHARD_N}`, subjects: {},
   };
   // A null score means the model's JSON did not parse and the runtime
   // substituted a placeholder. median() filters nulls out, so a half-failed run
@@ -104,7 +108,9 @@ async function main() {
   for (const subj of subjects) {
     const s = dataset[subj];
     const { assignmentId, questionId } = idMap[subj];
-    const answers = s.answers.filter(a => sets.includes(a.set) && !EXCLUDE.has(a.student_code));
+    const answers = s.answers
+      .filter(a => sets.includes(a.set) && !EXCLUDE.has(a.student_code))
+      .filter((_, i) => i % SHARD_N === SHARD_I);
     console.error(`\n=== ${subj}: ${answers.length} answers x ${RUNS} runs (max=${s.max_score}) ===`);
     const records = [];
     let subjectNulls = 0, subjectCalls = 0;
