@@ -44,12 +44,10 @@ next-env.d.ts
 /lib/generated/prisma
 
 DATABASE-SETUP-SUMMARY.md
-AGENTS.md
-/.gemini
 /supabase
 
-# docs
-/docs
+# Local documentation, including AI-generated plans and QA reports
+/docs/
 
 /.env
 /.env.local
@@ -74,9 +72,17 @@ temp_hash.js
 /playwright-report/
 /test-reports/
 
-# AI assistant docs & generated artifacts (kept locally, never committed)
+# AI assistant instructions, tooling, and generated artifacts (kept locally)
+AGENTS.md
 CLAUDE.md
 GEMINI.md
 /.agents/
+/.claude/
+/.codex/
+/.gemini/
+/.cursor/
+/.beads/
+/.metaswarm/
+/.mcp.json
 /specs/
 skills-lock.json

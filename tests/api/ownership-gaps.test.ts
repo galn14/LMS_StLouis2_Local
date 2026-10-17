@@ -1,6 +1,6 @@
 /**
  * QA Phase 5 — open ownership defects found by the route-handler coverage map (docs/qa/route-coverage-map.md).
- * Production code is NOT changed here (owner approval pending). Each defect is pinned twice:
+ * Ownership regressions for the release security fixes. Remaining unrelated defects are pinned twice:
  *
  *   - `test.failing` = the decided requirement. It fails today, so Jest reports it as passing. When the
  *     route is fixed it starts to pass, Jest reports it as failing, and the pin must become a plain test.
@@ -30,6 +30,7 @@ jest.mock('@/lib/prisma', () => {
 jest.mock('@/lib/ai', () => ({ resolveProviderName: jest.fn(() => 'local') }));
 jest.mock('@/lib/db2/pds-repo', () => ({
   pdsTables: jest.fn(() => ({})),
+  getFlagById: jest.fn(),
   updateFlag: jest.fn(),
   insertTeacherAction: jest.fn(),
   insertAuditLog: jest.fn(),
@@ -62,7 +63,14 @@ beforeEach(() => {
   pds.updateFlag.mockResolvedValue({ id: 'flag-1', reviewed: true });
   pds.insertTeacherAction.mockResolvedValue(undefined);
   pds.insertAuditLog.mockResolvedValue(undefined);
-  // The flag belongs to class_course 70 (teacher 201). Nothing in the route reads this today.
+  pds.getFlagById.mockResolvedValue({ id: 'flag-1', submission_id: '8001' });
+  db.assignment_submissions.findUnique.mockResolvedValue({
+    assignments: { sessions: { class_courses: { teacher_id: 201 } } },
+  });
+  db.assignments.findUnique.mockResolvedValue({
+    id: 7001,
+    sessions: { class_course_id: 70, class_courses: { teacher_id: 201, course_id: 50, courses: { course_code: 'MAT001' } } },
+  });
   db.resources.findMany.mockResolvedValue([]);
 });
 
@@ -89,16 +97,29 @@ describe('DC-33 / Q-07, Q-10: POST /api/plagiarism/flag ownership', () => {
     expect((await postFlag()).status).toBe(401);
   });
 
-  test.failing('[DC-33 requirement] a teacher of another class => 403, flag untouched', async () => {
+  test('[DC-33 requirement] a teacher of another class => 403, flag untouched', async () => {
     signIn('teacherOther');
     expect((await postFlag()).status).toBe(403);
     expect(pds.updateFlag).not.toHaveBeenCalled();
   });
 
-  test('[DC-33 characterization] today a teacher of another class adjudicates the flag (200, written)', async () => {
-    signIn('teacherOther');
+  test.each(['guruOwner', 'admin'] as const)('%s may adjudicate the flag', async persona => {
+    signIn(persona);
     expect((await postFlag()).status).toBe(200);
-    expect(pds.updateFlag).toHaveBeenCalledWith('flag-1', expect.objectContaining({ reviewed_by: '202' }), {});
+  });
+
+  test('a missing flag returns 404 without writes or audit entries', async () => {
+    signIn('teacherOwner');
+    pds.getFlagById.mockResolvedValue(null);
+    expect((await postFlag()).status).toBe(404);
+    expect(pds.updateFlag).not.toHaveBeenCalled();
+    expect(pds.insertAuditLog).not.toHaveBeenCalled();
+  });
+
+  test('role names containing TEACHER do not grant access', async () => {
+    (getServerSession as jest.Mock).mockResolvedValue({ user: { id: '201', role: 'NOT_A_TEACHER' } });
+    expect((await postFlag()).status).toBe(403);
+    expect(pds.updateFlag).not.toHaveBeenCalled();
   });
 
   test.failing('[DC-30 requirement] a storage failure => 500 without internal details', async () => {
@@ -120,9 +141,9 @@ describe('DC-33 / Q-07, Q-10: POST /api/plagiarism/flag ownership', () => {
 
 // ------------------------------------------------------------------ DC-34 / DC-11
 
-const aiBody = { assignmentId: 7001, courseId: 50, rubric: { criteria: [] }, resourceIds: [9001] };
-const postAiSetup = () =>
-  aiCreateRoute.POST(buildRequest('/api/assignments/create', { method: 'POST', json: aiBody }));
+const aiBody = { assignmentId: 7001 as number | string, courseId: 50, rubric: { criteria: [] }, resourceIds: [9001] };
+const postAiSetup = (body = aiBody) =>
+  aiCreateRoute.POST(buildRequest('/api/assignments/create', { method: 'POST', json: body }));
 
 describe('DC-34 / DC-11: POST /api/assignments/create (AI grading setup)', () => {
   test.each(['student', 'otherStudent'] as const)('%s => 403 before any lookup', async persona => {
@@ -136,29 +157,60 @@ describe('DC-34 / DC-11: POST /api/assignments/create (AI grading setup)', () =>
     expect((await postAiSetup()).status).toBe(401);
   });
 
-  test.failing('[DC-34 requirement] a teacher of another class => 403 before resources are read', async () => {
+  test('[DC-34 requirement] a teacher of another class => 403 before resources are read', async () => {
     signIn('teacherOther');
     expect((await postAiSetup()).status).toBe(403);
     expect(db.resources.findMany).not.toHaveBeenCalled();
   });
 
-  test('[DC-34 characterization] today a teacher of another class passes auth and reaches the resource lookup', async () => {
-    signIn('teacherOther');
+  test('materials are scoped to the persisted assignment class offering', async () => {
+    signIn('teacherOwner');
     const res = await postAiSetup();
     expect(res.status).toBe(422);
     expect((await res.json()).error).toBe('No valid resources found for the given IDs');
-    // Resource ids are not scoped to the course either: the lookup is by id only.
-    expect(db.resources.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: { in: [9001] } } }));
-    expect(localAcs.getAcsLocalAssignmentByAssignmentId).toHaveBeenCalledWith('7001');
+    expect(db.resources.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: { in: [9001] }, sessions: { class_course_id: 70 } },
+    }));
+    expect(localAcs.getAcsLocalAssignmentByAssignmentId).not.toHaveBeenCalled();
   });
 
-  test.failing('[DC-11 requirement, Q-02] the owning teacher with role GURU is not rejected', async () => {
+  test('[DC-11 requirement, Q-02] the owning teacher with role GURU is not rejected', async () => {
     signIn('guruOwner');
     expect((await postAiSetup()).status).not.toBe(403);
   });
 
-  test('[DC-11 characterization] today GURU gets 403', async () => {
-    signIn('guruOwner');
-    expect((await postAiSetup()).status).toBe(403);
+  test('a mismatched courseId is rejected before resource/provider reads', async () => {
+    signIn('teacherOwner');
+    expect((await postAiSetup({ ...aiBody, courseId: 99 })).status).toBe(400);
+    expect(db.resources.findMany).not.toHaveBeenCalled();
+    expect(localAcs.getAcsLocalAssignmentByAssignmentId).not.toHaveBeenCalled();
+  });
+
+  test('mixed valid and foreign resources are rejected before indexing', async () => {
+    signIn('teacherOwner');
+    db.resources.findMany.mockResolvedValue([{ id: 9001, file_url: '/test.txt', file_name: 'test.txt' }]);
+    expect((await postAiSetup({ ...aiBody, resourceIds: [9001, 9999] })).status).toBe(422);
+    expect(jest.requireMock('@/lib/ai-local/rag/ingest').createLocalCorpus).not.toHaveBeenCalled();
+  });
+
+  test.each(['teacherOwner', 'guruOwner', 'admin'] as const)('%s can configure owned resources', async persona => {
+    signIn(persona);
+    db.resources.findMany.mockResolvedValue([{ id: 9001, file_url: '/test.txt', file_name: 'test.txt' }]);
+    jest.requireMock('@/lib/ai-local/rag/ingest').createLocalCorpus.mockResolvedValue({ corpus_id: 'corpus-1', files_indexed: 1 });
+    localAcs.upsertAcsLocalAssignment.mockResolvedValue({ id: 'acs-1' });
+    const response = await postAiSetup();
+    expect(response.status).toBe(200);
+    expect((await response.json()).data.vector_store_id).toBe('corpus-1');
+  });
+
+  test('equivalent assignment ID spellings use the canonical authorized ID for provider and storage', async () => {
+    signIn('teacherOwner');
+    db.resources.findMany.mockResolvedValue([{ id: 9001, file_url: '/test.txt', file_name: 'test.txt' }]);
+    const ingest = jest.requireMock('@/lib/ai-local/rag/ingest').createLocalCorpus;
+    ingest.mockResolvedValue({ corpus_id: 'corpus-1', files_indexed: 1 });
+    localAcs.upsertAcsLocalAssignment.mockResolvedValue({ id: 'acs-1' });
+    expect((await postAiSetup({ ...aiBody, assignmentId: '07001' })).status).toBe(200);
+    expect(ingest).toHaveBeenCalledWith(expect.objectContaining({ assignmentId: '7001' }));
+    expect(localAcs.upsertAcsLocalAssignment).toHaveBeenCalledWith(expect.objectContaining({ assignment_id: '7001' }));
   });
 });

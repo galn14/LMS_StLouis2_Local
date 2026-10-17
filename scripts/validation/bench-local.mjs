@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { loadProjectEnv } from '../lib/load-env.cjs';
 /**
  * Hardware benchmark for the local (Ollama) grading stack.
  *
@@ -45,7 +46,7 @@ const POLL_MS = 2000;
 
 /* ── pure helpers (exported for bench-local.test.mjs) ───────────────────── */
 
-/** Parses KEY=value lines the way db/aux/migrate.mjs does. */
+/** Legacy parser retained for historical harness inputs; runtime uses loadProjectEnv. */
 export function parseEnvFile(text) {
   const out = {};
   for (const line of text.split(/\r?\n/)) {
@@ -314,13 +315,6 @@ export function renderSummary(bench) {
 
 /* ── side-effecting parts ───────────────────────────────────────────────── */
 
-function loadEnvFiles() {
-  const files = ['.env', '.env.local']
-    .map(name => path.join(ROOT, name))
-    .filter(p => fs.existsSync(p))
-    .map(p => parseEnvFile(fs.readFileSync(p, 'utf8')));
-  Object.assign(process.env, mergeEnv(process.env, files));
-}
 
 async function fetchJson(url, timeoutMs = 5000) {
   const controller = new AbortController();
@@ -531,7 +525,7 @@ async function readUsage(since) {
 }
 
 async function main() {
-  loadEnvFiles();
+  loadProjectEnv();
   const plan = parseArgs(process.argv.slice(2));
   const host = sanitizeHost(os.hostname());
   const startedAt = new Date();

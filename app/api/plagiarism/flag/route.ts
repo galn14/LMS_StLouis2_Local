@@ -3,23 +3,24 @@ import { NextResponse } from 'next/server';
 import { resolveProviderName } from '@/lib/ai';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/auth';
+import { isAdminRole, isTeacherRole, requireCourseManager, teacherIdsForSubmission } from '@/lib/auth/course-access';
 import {
   insertAuditLog,
   insertTeacherAction,
   updateFlag,
-  pdsTables
+  pdsTables,
+  getFlagById,
 } from '@/lib/db2/pds-repo';
 
 export async function POST(request: Request) {
   try {
     const tables = pdsTables(resolveProviderName());
     const session = await getServerSession(authOptions);
-    if (!session || !session.user) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const role = (session.user.role || '').toUpperCase();
-    if (!role.includes('GURU') && !role.includes('TEACHER') && !role.includes('ADMIN')) {
+    if (!isTeacherRole(session.user.role) && !isAdminRole(session.user.role)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
@@ -29,6 +30,11 @@ export async function POST(request: Request) {
     if (!flag_id || !action) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
+
+    const flag = await getFlagById(flag_id, tables);
+    if (!flag) return NextResponse.json({ error: 'Flag not found' }, { status: 404 });
+    const access = await requireCourseManager(() => teacherIdsForSubmission(flag.submission_id));
+    if (!access.ok) return access.response;
 
     // 1. Update Flag
     const updatedFlag = await updateFlag(flag_id, {

@@ -1,29 +1,37 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/auth';
+import { canManageCourse, forbiddenResponse, getSessionUser, unauthorizedResponse } from '@/lib/auth/course-access';
 import { prisma } from '@/lib/prisma';
 import path from 'path';
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    const user = await getSessionUser();
+    if (!user) return unauthorizedResponse();
+
+    const assignmentId = Number(request.nextUrl.searchParams.get('assignmentId'));
+    if (!Number.isSafeInteger(assignmentId) || assignmentId <= 0) {
+      return NextResponse.json({ success: false, error: 'Invalid assignmentId' }, { status: 400 });
     }
 
-    const courseId = request.nextUrl.searchParams.get('courseId');
-    if (!courseId) {
-      return NextResponse.json({ success: false, error: 'Missing courseId' }, { status: 400 });
+    const assignment = await prisma.assignments.findUnique({
+      where: { id: assignmentId },
+      select: { sessions: { select: {
+        class_course_id: true,
+        class_courses: { select: { teacher_id: true } },
+      } } },
+    });
+    const offering = assignment?.sessions;
+    if (offering?.class_course_id == null || !offering.class_courses) {
+      return NextResponse.json({ success: false, error: 'Assignment course not found' }, { status: 404 });
     }
+    if (!canManageCourse(user, [offering.class_courses.teacher_id])) return forbiddenResponse();
 
     const supportedExtensions = ['.pdf', '.docx', '.doc', '.txt', '.md', '.pptx'];
 
-    // Fetch sessions with resources for this course
+    // Match the offering restriction enforced by grading setup, including for admins.
     const sessions = await prisma.sessions.findMany({
       where: {
-        class_courses: {
-          courses: { id: parseInt(courseId) },
-        },
+        class_course_id: offering.class_course_id,
       },
       select: {
         id: true,

@@ -89,32 +89,56 @@ test.describe('DC-36 / FR-ASG-5, Q-07: GET /api/courses/{code}/assignments (used
     expect((await essayOf(res))?.submissions?.map(s => s.student.id)).toEqual([101]);
   });
 
-  test.fail('[DC-36 requirement] a student not enrolled in the course => 403', async ({ browser }) => {
+  test('[DC-36 requirement] a student not enrolled in the course => 403', async ({ browser }) => {
     const outsider = await apiAs(browser, 'otherStudent');
     expect((await outsider.get(URL)).status()).toBe(403);
   });
 
-  test('[DC-36 characterization] today a non-enrolled student gets 200 and sees another student\'s submission', async ({ browser }) => {
-    const outsider = await apiAs(browser, 'otherStudent');
-    const res = await outsider.get(URL);
+  test('[DC-36 regression] an enrolled student sees only their own submission and no keys', async ({ browser }) => {
+    await seedEssaySubmission(102);
+    const student = await apiAs(browser, 'student');
+    const res = await student.get(URL);
     expect(res.status()).toBe(200);
-    expect((await essayOf(res))?.submissions?.map(s => s.student.id)).toEqual([101]);
+    const essay = await essayOf(res);
+    expect(essay?.submissions?.map(s => s.student.id)).toEqual([101]);
+    const options = essay?.questions?.flatMap(q => q.options) ?? [];
+    expect(options.length).toBeGreaterThan(0);
+    expect(options.every(o => !('is_correct' in o))).toBe(true);
   });
 
-  test.fail('[DC-36 requirement] a teacher of another class gets no answer keys', async ({ browser }) => {
+  test('[DC-36 requirement] a teacher of another class is denied', async ({ browser }) => {
     const other = await apiAs(browser, 'otherTeacher');
     const res = await other.get(URL);
-    const options = (await essayOf(res))?.questions?.flatMap(q => q.options) ?? [];
-    expect(res.status() === 403 || options.every(o => !('is_correct' in o))).toBe(true);
+    expect(res.status()).toBe(403);
+    expect(await res.json()).not.toHaveProperty('data');
   });
 
-  test('[DC-36 characterization] today a teacher of another class gets 200 with is_correct', async ({ browser }) => {
-    const other = await apiAs(browser, 'otherTeacher');
-    const res = await other.get(URL);
+  test('[DC-36 regression] the course teacher sees answer keys', async ({ browser }) => {
+    const teacher = await apiAs(browser, 'teacher');
+    const res = await teacher.get(URL);
     expect(res.status()).toBe(200);
     const options = (await essayOf(res))?.questions?.flatMap(q => q.options) ?? [];
     expect(options.length).toBeGreaterThan(0);
     expect(options.every(o => 'is_correct' in o)).toBe(true);
+  });
+
+  test('[DC-36 regression] sharing a course code does not grant access to another class offering', async ({ browser }) => {
+    await query("insert into classes (id, class_name, grade_level, year_id) values (6, 'X-2', '10', 1)");
+    try {
+      await query("insert into class_courses (id, class_id, course_id, teacher_id, start_date, end_date) values (71, 6, 50, 202, '2026-07-01', '2027-06-30')");
+      await query("insert into sessions (id, class_course_id, title, session_number, start_time, end_time) values (701, 71, 'Other class', 1, '2026-07-20 08:00', '2026-07-20 09:30')");
+      await query("insert into assignments (id, session_id, assignment_type_id, title, total_points, created_by) values (7100, 701, 4, 'Other class quiz', 100, 202)");
+      for (const user of ['student', 'teacher', 'otherTeacher', 'admin'] as const) {
+        const client = await apiAs(browser, user);
+        const res = await client.get(URL);
+        expect(res.status(), user).toBe(200);
+        const { data } = await res.json();
+        const ids = data.map((row: Row) => row.id).sort();
+        expect(ids, user).toEqual(user === 'admin' ? [7000, 7001, 7100] : user === 'otherTeacher' ? [7100] : [7000, 7001]);
+      }
+    } finally {
+      await query('delete from classes where id = 6');
+    }
   });
 });
 

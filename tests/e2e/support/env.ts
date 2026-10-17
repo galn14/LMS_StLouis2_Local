@@ -4,7 +4,7 @@
  * The app server is started with EVERY database variable pinned to a disposable
  * local database. Next.js auto-loads `.env` / `.env.local` (real dev credentials),
  * but process variables win, so anything not overridden here would leak through —
- * including the hardcoded remote fallback host in `lib/database.ts` (DC-21).
+ * including credentials used by raw database helpers. DC-21's source fallback is removed.
  */
 import os from 'os';
 
@@ -12,7 +12,10 @@ export const E2E_PORT = 3100;
 export const E2E_BASE_URL = `http://localhost:${E2E_PORT}`;
 export const E2E_DB_NAME = 'lms_e2e_test';
 const DB_HOST = '127.0.0.1';
-const DB_PORT = '5432';
+const DB_PORT = process.env.E2E_DB_PORT || '5432';
+if (!/^\d+$/.test(DB_PORT) || Number(DB_PORT) < 1 || Number(DB_PORT) > 65535) {
+  throw new Error('E2E_DB_PORT must be an integer between 1 and 65535');
+}
 const DB_USER = process.env.E2E_DB_USER || os.userInfo().username;
 const DB_PASSWORD = process.env.E2E_DB_PASSWORD || '';
 
@@ -29,11 +32,17 @@ export function assertSafeTestDatabase(url: string = E2E_DATABASE_URL): void {
   }
 }
 
-/** Environment for `next dev`: every DB-ish variable points at the test database. */
-export function serverEnv(): Record<string, string> {
+export type E2EServerMode = 'dev' | 'production';
+
+/**
+ * Environment for the app under test (`next dev`, or `next build` + `next start`): every DB-ish
+ * variable points at the test database. The same values are used for the production build, so the
+ * built app can never carry another database's settings.
+ */
+export function serverEnv(mode: E2EServerMode = 'dev'): Record<string, string> {
   assertSafeTestDatabase();
   return {
-    NODE_ENV: 'development',
+    NODE_ENV: mode === 'production' ? 'production' : 'development',
     DATABASE_URL: E2E_DATABASE_URL,
     LMS_POSTGRES_URL: E2E_DATABASE_URL,
     AUX_POSTGRES_URL: E2E_DATABASE_URL, // local ACS reads use the same disposable DB
