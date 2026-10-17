@@ -50,6 +50,19 @@ describe('parsePlainText', () => {
   it('returns no section for an empty file', () => {
     expect(parsePlainText(buf('   \n  '))).toEqual([]);
   });
+
+  // Postgres TEXT rejects 0x00 ("invalid byte sequence for encoding UTF8"),
+  // and some PDFs (observed: Words_and_Tokens.pdf) yield NULs and other C0
+  // control characters from their text layer. Tabs and newlines are kept.
+  it('strips NUL and other control characters but keeps tabs and newlines', () => {
+    expect(parsePlainText(buf('to\u0000ken\u0001s\u0007\tok\u001f\nline\u007f two'))).toEqual([
+      { locator: 'document', text: 'tokens ok\nline two' },
+    ]);
+  });
+
+  it('returns no section when a file holds only control characters', () => {
+    expect(parsePlainText(buf('\u0000\u0000\u0001'))).toEqual([]);
+  });
 });
 
 describe('parsePptx', () => {
