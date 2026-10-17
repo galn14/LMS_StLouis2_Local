@@ -972,7 +972,7 @@ Workflow CI menggunakan Node.js 24 untuk job yang memasang runtime Node aplikasi
 gitleaks git --redact --no-banner .
 ```
 
-Scan di atas memeriksa riwayat commit, bukan hanya working tree. Empat finding yang telah ditriase pada baseline berada di `tests/lib/crypto.test.ts` dan merupakan ciphertext/dummy test key. Jangan menonaktifkan seluruh rule; bila suppression diperlukan, gunakan fingerprint spesifik setelah review. Setiap finding baru harus ditriase.
+Scan di atas memeriksa riwayat commit, bukan hanya working tree. Empat finding yang telah ditriase berada di `tests/lib/crypto.test.ts` dan merupakan ciphertext/dummy test key. `.gitleaksignore` mengecualikan hanya empat fingerprint yang sudah direview, bukan seluruh rule atau seluruh file. Setiap finding baru harus ditriase.
 
 ### 14.4 Benchmark penelitian
 
