@@ -4,10 +4,11 @@
 name: CI
 
 on:
+  # main is the default branch of this repository; staging is kept for the thesis deployment flow.
   pull_request:
-    branches: [staging]
+    branches: [main, staging]
   push:
-    branches: [staging]
+    branches: [main, staging]
   schedule:
     - cron: '0 23 * * 0' # Monday 06:00 WIB
   workflow_dispatch:
@@ -53,6 +54,73 @@ jobs:
         with:
           name: coverage
           path: coverage/
+          retention-days: 14
+
+  # Production build with no database and no real secrets: proves the app compiles and that no page
+  # needs a live connection at build time (verified locally 2026-10-17, docs/qa/ci-readiness.md).
+  build:
+    name: Production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NEXTAUTH_SECRET: ci-build-only-not-a-secret
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+
+  # Browser + API journeys against a throwaway Postgres service. tests/e2e/support/env.ts pins every DB
+  # variable to 127.0.0.1/lms_e2e_test and refuses anything else, so .env files and repository secrets are
+  # never read. The credentials below exist only inside this job's container.
+  e2e:
+    name: Playwright E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: checks
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: e2e-ci-only
+          POSTGRES_DB: lms_e2e_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      E2E_DB_USER: postgres
+      E2E_DB_PASSWORD: e2e-ci-only
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Apply LMS schema to the throwaway database
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://postgres:e2e-ci-only@127.0.0.1:5432/lms_e2e_test
+      - name: Install the Chromium build pinned by @playwright/test
+        run: npx playwright install --with-deps chromium
+      # seed.spec.ts is the Playwright agents' empty seed file, not a test.
+      - name: Run E2E
+        run: npx playwright test --grep-invert "Test group"
+      - name: Upload Playwright report, JSON results and failure traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright
+          path: |
+            playwright-report/
+            test-reports/
+            test-results/
           retention-days: 14
 
   secrets:
