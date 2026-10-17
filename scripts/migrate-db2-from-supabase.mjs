@@ -1,9 +1,8 @@
-import dotenv from 'dotenv';
+import { loadProjectEnv } from './lib/load-env.cjs';
 import { createClient } from '@supabase/supabase-js';
 import pg from 'pg';
 
-dotenv.config({ path: '.env' });
-dotenv.config({ path: '.env.local', override: true });
+loadProjectEnv();
 
 const { Pool } = pg;
 

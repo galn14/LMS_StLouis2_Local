@@ -27,6 +27,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
+import { loadProjectEnv } from '../lib/load-env.cjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
@@ -40,18 +41,6 @@ const ANCHORS = {
   agama: ['AGM-S11', 'AGM-S18', 'AGM-S01'],
 };
 
-function loadEnv() {
-  const fromFiles = {};
-  for (const name of ['.env', '.env.local']) {
-    const file = path.join(ROOT, name);
-    if (!fs.existsSync(file)) continue;
-    for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
-      const m = /^\s*([A-Z0-9_]+)\s*=\s*(.*)$/i.exec(line);
-      if (m) fromFiles[m[1]] = m[2].trim().replace(/^["']|["']$/g, '');
-    }
-  }
-  for (const [k, v] of Object.entries(fromFiles)) if (process.env[k] === undefined) process.env[k] = v;
-}
 
 /** Scoring sections of a guide: headings mentioning PENILAIAN/ATURAN, never calibration notes. */
 function scoringGuide(text) {
@@ -99,7 +88,7 @@ function buildRubrics() {
 }
 
 async function main() {
-  loadEnv();
+  loadProjectEnv();
   const { ids, rubrics } = buildRubrics();
   const v3Ids = { ...ids, subjects: ids.subjects.map(s => ({ ...s, assignmentId: `${s.assignmentId}-v3` })) };
 

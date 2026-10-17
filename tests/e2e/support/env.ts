@@ -12,7 +12,10 @@ export const E2E_PORT = 3100;
 export const E2E_BASE_URL = `http://localhost:${E2E_PORT}`;
 export const E2E_DB_NAME = 'lms_e2e_test';
 const DB_HOST = '127.0.0.1';
-const DB_PORT = '5432';
+const DB_PORT = process.env.E2E_DB_PORT || '5432';
+if (!/^\d+$/.test(DB_PORT) || Number(DB_PORT) < 1 || Number(DB_PORT) > 65535) {
+  throw new Error('E2E_DB_PORT must be an integer between 1 and 65535');
+}
 const DB_USER = process.env.E2E_DB_USER || os.userInfo().username;
 const DB_PASSWORD = process.env.E2E_DB_PASSWORD || '';
 

@@ -12,8 +12,7 @@
 
 const fs = require('fs');
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '..', '.env.local') });
-require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+require('./lib/load-env.cjs').loadProjectEnv();
 
 const OpenAI = require('openai');
 
