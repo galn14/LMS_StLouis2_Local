@@ -134,7 +134,7 @@ export async function GET(
   } catch (error) {
     console.error('Error fetching course assignments:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch assignments', details: error instanceof Error ? error.message : 'Unknown error' },
+      { error: 'Failed to fetch assignments' },
       { status: 500 }
     );
   }

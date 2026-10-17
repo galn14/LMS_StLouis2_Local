@@ -149,7 +149,6 @@ export async function PUT(
       {
         success: false,
         error: 'Failed to update assignment',
-        details: error instanceof Error ? error.message : 'Unknown error',
       },
       { status: 500 }
     );

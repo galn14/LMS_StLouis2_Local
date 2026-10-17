@@ -284,7 +284,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('Error fetching scores:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch scores', details: error instanceof Error ? error.message : 'Unknown error' },
+      { error: 'Failed to fetch scores' },
       { status: 500 }
     );
   }

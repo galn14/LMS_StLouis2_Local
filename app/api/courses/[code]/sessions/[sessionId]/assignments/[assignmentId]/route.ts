@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { Prisma } from '@prisma/client';
 import {
   canManageCourse,
   getSessionUser,
@@ -129,7 +130,7 @@ export async function GET(
   } catch (error) {
     console.error('Error fetching assignment:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch assignment', details: error instanceof Error ? error.message : 'Unknown error' },
+      { error: 'Failed to fetch assignment' },
       { status: 500 }
     );
   }
@@ -244,9 +245,14 @@ export async function POST(
       message: 'Assignment submitted successfully',
     });
   } catch (error) {
+    // FR-SUB-1 / O-18: a concurrent submit can pass the attempt count above; the
+    // unique (assignment_id, student_id, attempt_number) index rejects the loser.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return NextResponse.json({ error: 'Maximum attempts reached' }, { status: 409 });
+    }
     console.error('Error submitting assignment:', error);
     return NextResponse.json(
-      { error: 'Failed to submit assignment', details: error instanceof Error ? error.message : 'Unknown error' },
+      { error: 'Failed to submit assignment' },
       { status: 500 }
     );
   }

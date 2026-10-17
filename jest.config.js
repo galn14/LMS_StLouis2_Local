@@ -9,7 +9,8 @@ module.exports = {
   // scripts/ holds plain Node tooling with its own `node --test` suites (ESM),
   // which Jest cannot parse. .agents/ holds installed agent skills whose own
   // .test.cjs files are not part of this app.
-  testPathIgnorePatterns: ['/node_modules/', '<rootDir>/scripts/', '<rootDir>/.agents/'],
+  // tests/e2e/ holds Playwright specs (run with `npx playwright test`), not Jest tests.
+  testPathIgnorePatterns: ['/node_modules/', '<rootDir>/scripts/', '<rootDir>/.agents/', '<rootDir>/tests/e2e/'],
   restoreMocks: true,
   // Module-factory mocks are not spies, so restoreMocks does not touch them and
   // call history leaks between tests in the same file.
@@ -22,6 +23,10 @@ module.exports = {
     'lib/crypto.ts',
     'lib/feature-access.ts',
     'lib/score-view-utils.ts',
+    'app/api/upload/route.ts',
+    'app/api/courses/[[]code]/sessions/[[]sessionId]/assignments/route.ts',
+    'app/api/courses/[[]code]/sessions/[[]sessionId]/assignments/[[]assignmentId]/grade/route.ts',
+    'app/api/courses/[[]code]/sessions/[[]sessionId]/assignments/[[]assignmentId]/submit/route.ts',
   ],
   // Scoped rather than global on purpose. `.coverage-thresholds.json` declares
   // 100% as a blocking gate, but jest has never enforced anything — a global
@@ -38,6 +43,11 @@ module.exports = {
     './lib/crypto.ts': { lines: 100, branches: 100, functions: 100, statements: 100 },
     './lib/feature-access.ts': { lines: 100, branches: 100, functions: 100, statements: 100 },
     './lib/score-view-utils.ts': { lines: 100, branches: 100, functions: 100, statements: 100 },
+    // QA Phase 3 fixes A1-A7 (docs/qa/defect-candidates.md).
+    './app/api/upload/route.ts': { lines: 100, branches: 100, functions: 100, statements: 100 },
+    './app/api/courses/[code]/sessions/[sessionId]/assignments/route.ts': { lines: 100, branches: 100, functions: 100, statements: 100 },
+    './app/api/courses/[code]/sessions/[sessionId]/assignments/[assignmentId]/grade/route.ts': { lines: 100, branches: 100, functions: 100, statements: 100 },
+    './app/api/courses/[code]/sessions/[sessionId]/assignments/[assignmentId]/submit/route.ts': { lines: 100, branches: 100, functions: 100, statements: 100 },
     // Not gated: lib/scoringUtils.ts and lib/plagiarism/similarity.ts each
     // contain an unreachable branch (DC-16, DC-19), so 100% needs
     // an app-code fix first. Both are tested; see docs/qa/defect-candidates.md.

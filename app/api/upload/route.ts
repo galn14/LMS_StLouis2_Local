@@ -53,9 +53,6 @@ const CONTENT_TYPE_MAP: Record<string, string> = {
   html: 'text/html',
   json: 'application/json',
   xml: 'application/xml',
-
-  // Default fallback
-  default: 'application/octet-stream',
 };
 
 function getFileExtension(filename: string): string {
@@ -64,13 +61,45 @@ function getFileExtension(filename: string): string {
   return filename.substring(lastDot + 1).toLowerCase();
 }
 
-function getContentType(filename: string): string {
-  const extension = getFileExtension(filename);
-  return CONTENT_TYPE_MAP[extension] || CONTENT_TYPE_MAP['default'];
-}
-
 // Q-08 (2026-10-17): PDF, Word and images only.
 const ALLOWED_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png', 'gif']);
+
+// The extension and the browser-reported type are both client-controlled, so the
+// file's leading bytes must match the extension too (A6). DOCX is a ZIP container.
+const OLE2 = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
+const JPEG = [0xff, 0xd8, 0xff];
+const SIGNATURES: Record<string, number[][]> = {
+  pdf: [[0x25, 0x50, 0x44, 0x46, 0x2d]], // %PDF-
+  doc: [OLE2],
+  docx: [[0x50, 0x4b, 0x03, 0x04]],
+  jpg: [JPEG],
+  jpeg: [JPEG],
+  png: [[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]],
+  gif: [
+    [0x47, 0x49, 0x46, 0x38, 0x37, 0x61], // GIF87a
+    [0x47, 0x49, 0x46, 0x38, 0x39, 0x61], // GIF89a
+  ],
+};
+
+function contentMatchesExtension(buffer: Buffer, extension: string): boolean {
+  return SIGNATURES[extension].some(
+    signature => buffer.length >= signature.length && signature.every((byte, i) => buffer[i] === byte)
+  );
+}
+
+// A declared type other than these generic ones must be the extension's own type.
+const GENERIC_TYPES = new Set(['', 'application/octet-stream']);
+
+function declaredTypeMatchesExtension(declared: string, extension: string): boolean {
+  return GENERIC_TYPES.has(declared) || declared === CONTENT_TYPE_MAP[extension];
+}
+
+function unsupportedTypeResponse(): NextResponse {
+  return NextResponse.json(
+    { error: 'Unsupported file type', message: 'Only PDF, Word (DOC/DOCX) and image (JPG/PNG/GIF) files are allowed.' },
+    { status: 415 }
+  );
+}
 // Path parts become folder names, so they may not contain separators or dots.
 const SAFE_SEGMENT = /^[A-Za-z0-9_-]+$/;
 
@@ -100,11 +129,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!ALLOWED_EXTENSIONS.has(getFileExtension(file.name))) {
-      return NextResponse.json(
-        { error: 'Unsupported file type', message: 'Only PDF, Word (DOC/DOCX) and image (JPG/PNG/GIF) files are allowed.' },
-        { status: 415 }
-      );
+    const fileExtension = getFileExtension(file.name);
+    if (!ALLOWED_EXTENSIONS.has(fileExtension) || !declaredTypeMatchesExtension(file.type, fileExtension)) {
+      return unsupportedTypeResponse();
     }
 
     // Q-09: only members of the course session may upload to it.
@@ -122,6 +149,12 @@ export async function POST(request: NextRequest) {
         { status: 413 }
       );
     }
+
+    const buffer = Buffer.from(await file.arrayBuffer());
+    if (!contentMatchesExtension(buffer, fileExtension)) {
+      return unsupportedTypeResponse();
+    }
+
     const uploadDir = context
       ? path.join(process.cwd(), 'public', 'uploads', 'courses', courseCode, 'sessions', sessionId, context)
       : path.join(process.cwd(), 'public', 'uploads', 'courses', courseCode, 'sessions', sessionId);
@@ -138,17 +171,14 @@ export async function POST(request: NextRequest) {
     const filename = `${timestamp}_${sanitizedName}`;
     const filepath = path.join(uploadDir, filename);
 
-    // Get file extension and content type
-    const fileExtension = getFileExtension(file.name);
-    const detectedContentType = getContentType(file.name);
+    // Only allowed extensions reach this point, and each has a known type.
+    const detectedContentType = CONTENT_TYPE_MAP[fileExtension];
 
     console.log('File extension:', fileExtension);
     console.log('Detected content type:', detectedContentType);
     console.log('Browser reported type:', file.type);
 
     // Save file
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
     await writeFile(filepath, buffer);
 
     console.log('File saved to:', filepath); // Return file URL (public path) with context support
@@ -173,7 +203,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error: 'Upload failed',
-        details: error instanceof Error ? error.message : 'Unknown error',
       },
       { status: 500 }
     );
