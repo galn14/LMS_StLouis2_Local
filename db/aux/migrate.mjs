@@ -10,6 +10,7 @@
  * silently mutated migration means two databases that claim the same version
  * but do not match, which is exactly the failure this table exists to prevent.
  *
+ *   node db/aux/migrate.mjs --init      initialize a new empty AUX database
  *   node db/aux/migrate.mjs             apply everything pending
  *   node db/aux/migrate.mjs --baseline  record the 7 legacy files as applied
  *                                       (they predate this runner) without
@@ -22,12 +23,12 @@
  */
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
-import { join, dirname, relative } from 'node:path';
+import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
+import { loadProjectEnv } from '../../scripts/lib/load-env.cjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const ROOT = join(HERE, '..', '..');
 const LOCAL_DIR = join(HERE, 'local');
 
 /** Applied by hand before this runner existed; `--baseline` records them. */
@@ -40,19 +41,6 @@ const LEGACY_FILES = [
   '006_pds_enhancements.sql',
   '007_admin_ai_tables.sql',
 ];
-
-function loadEnv() {
-  for (const name of ['.env', '.env.local']) {
-    const path = join(ROOT, name);
-    if (!existsSync(path)) continue;
-    for (const line of readFileSync(path, 'utf8').split('\n')) {
-      const match = /^\s*([A-Z0-9_]+)\s*=\s*(.*)$/i.exec(line);
-      if (!match) continue;
-      // .env.local is read second and wins, matching Next.js precedence.
-      process.env[match[1]] = match[2].trim().replace(/^["']|["']$/g, '');
-    }
-  }
-}
 
 function sqlFiles() {
   const legacy = LEGACY_FILES.map(name => ({ name, path: join(HERE, name) }));
@@ -68,7 +56,7 @@ function sqlFiles() {
 const checksum = sql => createHash('sha256').update(sql, 'utf8').digest('hex');
 
 async function main() {
-  loadEnv();
+  loadProjectEnv();
   const connectionString = process.env.AUX_POSTGRES_URL;
   if (!connectionString) {
     console.error('AUX_POSTGRES_URL is not set (check .env.local)');
@@ -77,6 +65,8 @@ async function main() {
 
   const args = new Set(process.argv.slice(2));
   const baseline = args.has('--baseline');
+  const initialize = args.has('--init');
+  if (initialize && baseline) throw new Error('Use --init for a fresh database or --baseline for an existing schema, not both');
   const dryRun = args.has('--dry-run');
   const statusOnly = args.has('--status');
 
@@ -84,6 +74,14 @@ async function main() {
   await client.connect();
 
   try {
+    if (initialize) {
+      const { rows } = await client.query(
+        "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> 'schema_migrations_aux'"
+      );
+      const { rows: [ledger] } = await client.query("SELECT to_regclass('public.schema_migrations_aux') AS name");
+      const recorded = ledger.name ? (await client.query('SELECT count(*)::int AS count FROM schema_migrations_aux')).rows[0].count : 0;
+      if (rows.length && !recorded) throw new Error('--init requires an empty public schema; use reviewed --baseline for existing AUX tables');
+    }
     await client.query(`
       CREATE TABLE IF NOT EXISTS schema_migrations_aux (
         filename    VARCHAR PRIMARY KEY,
@@ -136,7 +134,7 @@ async function main() {
         continue;
       }
 
-      if (isLegacy && !baseline) {
+      if (isLegacy && !baseline && !initialize) {
         throw new Error(
           `${name} is a legacy migration with no ledger entry.\n` +
             `It was applied by hand before this runner existed. Run once with ` +
