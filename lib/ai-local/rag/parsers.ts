@@ -46,8 +46,18 @@ export function extensionOf(fileName: string): string {
   return match ? match[1].toLowerCase() : '';
 }
 
+// C0 controls and DEL, except tab, newline and carriage return. Postgres TEXT
+// rejects NUL outright, and PDF text layers can contain any of these.
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
+
 function normalizeWhitespace(text: string): string {
-  return text.replace(/\r\n?/g, '\n').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+  return text
+    .replace(CONTROL_CHARS, '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 /* ── PDF ────────────────────────────────────────────────────────────────── */
