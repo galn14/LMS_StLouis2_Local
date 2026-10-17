@@ -55,7 +55,6 @@ export async function PUT(
     return NextResponse.json(
       {
         error: 'Failed to update assignment status',
-        details: error instanceof Error ? error.message : 'Unknown error',
       },
       { status: 500 }
     );
