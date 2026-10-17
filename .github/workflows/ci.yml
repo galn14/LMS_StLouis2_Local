@@ -1,0 +1,84 @@
+# PR gate — docs/qa/test-strategy.md §9, Sprint 1 item C-1.
+# Runs without any secrets, database, or AI provider: every test mocks its
+# dependencies, and jest.setup.ts fails any unmocked network call.
+name: CI
+
+on:
+  pull_request:
+    branches: [staging]
+  push:
+    branches: [staging]
+  schedule:
+    - cron: '0 23 * * 0' # Monday 06:00 WIB
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Lint, typecheck, test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # postinstall runs `prisma generate`, which needs no database.
+      - run: npm ci
+
+      # next-env.d.ts is git-ignored; Next generates it on dev/build.
+      - name: Create next-env.d.ts
+        run: |
+          printf '/// <reference types="next" />\n/// <reference types="next/image-types/global" />\n' > next-env.d.ts
+
+      - run: npm run lint
+      - run: npm run typecheck
+
+      # Enforces the per-path 100% coverageThreshold entries in jest.config.js.
+      - name: Test with coverage gate
+        run: npx jest --coverage --ci
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 14
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event_name != 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # Scans only the commits in the PR/push, so the pre-existing leak in
+      # history (DC-14) does not block every run; it needs rotation instead.
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm audit --audit-level=high --omit=dev
