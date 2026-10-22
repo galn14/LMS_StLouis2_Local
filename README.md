@@ -1,89 +1,97 @@
 # LMS St. Louis 2
 
-Learning Management System berbasis Next.js dengan automated grading berbasis AI, retrieval-augmented generation (RAG) dengan embedding, dan plagiarism detection. AI provider: Ollama lokal atau OpenAI.
+**Learning management dengan AI-assisted grading dan retrieval berbasis materi pembelajaran.**
 
-## Asal proyek dan atribusi
+LMS berbasis Next.js untuk mengelola pembelajaran, submission, dan grading dalam satu aplikasi. Pengembangan di repo ini berfokus pada AI pipeline: memproses materi menjadi konteks, menjalankan rubric-based grading, dan melakukan cross-submission similarity analysis.
 
-Proyek ini **bukan dibuat dari nol**. Aplikasi LMS dasarnya berasal dari repositori [Josesdio30/LMS_StLouis2](https://github.com/Josesdio30/LMS_StLouis2). Repositori ini melanjutkan dan mengembangkan basis tersebut; seluruh kredit atas LMS dasar menjadi milik pembuat aslinya.
+Inference mendukung **Ollama** untuk local models dan **OpenAI** melalui API. Data LMS dikelola dengan Prisma, sementara AI configuration, RAG corpus, dan embedding disimpan di database AUX berbasis PostgreSQL dengan `pgvector`.
 
-**Berasal dari repositori dasar** (sebagian kodenya diubah di sini):
+## Core capabilities
 
-- Aplikasi LMS Next.js: autentikasi (NextAuth), peran pengguna, mata kuliah, kelas, tahun akademik, enrollment, sesi pembelajaran, materi dan resource, tugas, pengumpulan, penilaian manual, forum diskusi, dan panel admin.
-- Schema database LMS (Prisma) dan struktur UI dasar.
+- **Rubric-based grading** — AI grading dengan per-criterion scores, structured output, dan batch processing queue.
+- **Assignment-scoped RAG** — ingestion PDF, DOCX, PPTX, TXT, dan Markdown; dilanjutkan dengan chunking, checksum deduplication, embedding, dan context retrieval per assignment.
+- **Citation validation** — source references pada model output dicocokkan dengan retrieved passages; references di luar konteks tersebut dibuang.
+- **Cross-submission similarity analysis** — embedding comparison antar-submission, dilengkapi evidence, flags, dan result export untuk mendukung plagiarism review.
+- **AI administration** — provider configuration, feature access control, audit logs, dan encrypted API credential storage.
+- **Operational tooling** — database bootstrap, AUX migrations dengan checksum ledger, Jest dan Playwright test suites, GitHub Actions CI, serta deployment dan maintenance runbooks.
 
-**Ditambahkan dan dikembangkan di repositori ini:**
+## Built on LMS_StLouis2
 
-- **Automated grading dengan AI** — penilaian jawaban terhadap rubrik melalui OpenAI atau model lokal (Ollama), dengan antrean batch, skor analitik per kriteria, skema keluaran terstruktur, dan dashboard AI.
-- **Backend RAG dengan embedding** — ingest materi (PDF, DOCX, PPTX, TXT, MD) ke korpus per tugas, chunking, deduplikasi berdasarkan checksum, penyimpanan vektor di PostgreSQL `pgvector`, dan retrieval passage terdekat sebagai konteks penilaian.
-- **Sitasi yang diverifikasi** — label sumber yang diklaim model dicocokkan dengan passage yang benar-benar diambil; sitasi yang tidak ada di konteks dibuang.
-- **Plagiarism detection berbasis embedding** — perbandingan kemiripan antar-pengumpulan, bukti, flag, dan ekspor hasil.
-- **Database AUX terpisah** (`db/ai-db/`) untuk konfigurasi AI, data RAG, dan tabel pendukung, lengkap dengan runner migrasi berledger checksum.
-- Konfigurasi AI dari admin, kontrol akses fitur, audit log, dan penyimpanan credential API terenkripsi.
-- Skrip setup yang dapat direproduksi, test suite (Jest dan Playwright E2E), CI GitHub Actions, serta runbook operasional di `ops/`.
+Proyek ini melanjutkan [Josesdio30/LMS_StLouis2](https://github.com/Josesdio30/LMS_StLouis2), yang menyediakan fondasi LMS: authentication, roles, course dan class management, enrollment, learning resources, assignments, submissions, manual grading, forums, dan admin panel, beserta Prisma schema dan struktur UI dasarnya.
 
-Lisensi dan catatan hak cipta ada di [LICENSE](LICENSE).
+Repo ini mengembangkan fondasi tersebut dengan AI backend, RAG dan embedding pipeline, citation validation, serta cross-submission similarity analysis. Sebagian upstream code juga disesuaikan untuk mendukung integrasi tersebut.
 
-## Dokumentasi engineer
+Kredit untuk fondasi LMS tetap kepada upstream developers. Ketentuan lisensi dan hak cipta tersedia di [LICENSE](LICENSE).
 
-**Mulai dari [Engineering Runbook](ops/ENGINEERING-RUNBOOK.md).**
+## Engineering documentation
 
-Panduan mencakup:
+Mulai dari **[Engineering Runbook](ops/ENGINEERING-RUNBOOK.md)** untuk setup, deployment, dan pengoperasian aplikasi.
 
-- Prasyarat runtime, arsitektur, port, dan storage.
-- Konfigurasi environment dan perbedaan loader Next.js/Prisma/script.
-- Instalasi PostgreSQL/pgvector, migrasi LMS/AUX, bootstrap master data/admin.
-- Integrasi Ollama/OpenAI serta migrasi Supabase opsional.
-- Development, production, systemd, Nginx, HTTPS.
-- Administrasi, monitoring, backup/restore, update/rollback.
-- Testing, troubleshooting, batasan, dan acceptance checklist.
+Runbook mencakup:
+
+- Runtime requirements, architecture, ports, dan storage.
+- Environment configuration serta perbedaan loading behavior pada Next.js, Prisma, dan standalone scripts.
+- PostgreSQL dan `pgvector` setup, LMS/AUX migrations, serta master data dan admin bootstrap.
+- Ollama/OpenAI integration dan optional Supabase migration.
+- Development dan production setup, termasuk systemd, Nginx, dan HTTPS.
+- Administration, monitoring, backup/restore, dan update/rollback.
+- Testing, troubleshooting, known limitations, dan acceptance checklist.
 
 Referensi tambahan:
 
-- [Template environment](.env.example).
-- [Hasil verifikasi instalasi bersih](ops/INSTALL-VERIFICATION.md).
-- [Playwright E2E](tests/e2e/README.md).
-- [RTX deployment dan benchmark](ops/rtx-runbook.md) — konteks eksperimen hardware; untuk setup umum gunakan engineering runbook.
+- [Environment template](.env.example) — daftar environment variables untuk konfigurasi awal.
+- [Clean installation verification](ops/INSTALL-VERIFICATION.md) — hasil verifikasi instalasi dari environment kosong.
+- [Playwright E2E guide](tests/e2e/README.md) — setup dan eksekusi end-to-end tests.
+- [RTX deployment and benchmarks](ops/rtx-runbook.md) — catatan hardware experiments; gunakan Engineering Runbook untuk deployment umum.
 
-## Prasyarat ringkas
+## Requirements
 
-- Node.js **24.x** dan npm.
-- PostgreSQL dengan extension `vector` dan `pgcrypto` pada database AUX.
-- Dua database: LMS dan AUX.
-- Ollama beserta model jika `AI_PROVIDER=local`, atau credential OpenAI jika `openai`.
-- Disk persisten untuk `public/uploads/`.
+- **Node.js 24.x** dan npm.
+- **PostgreSQL**, dengan extensions `vector` dan `pgcrypto` pada database AUX.
+- Dua database: **LMS** untuk application data dan **AUX** untuk AI configuration, RAG, serta supporting tables.
+- **Ollama** beserta local models untuk `AI_PROVIDER=local`, atau **OpenAI API credentials** untuk `AI_PROVIDER=openai`.
+- Persistent storage untuk `public/uploads/`.
 
-> **[PERHATIAN]** Clone baru belum memiliki akun atau data akademik. `npm ci` dan migrasi schema tidak membuat akun admin. Jalankan `npm run db:bootstrap` sesuai runbook. Jangan memakai seed E2E untuk database operasional.
+> Fresh installation belum memiliki user accounts atau academic data. Dependency installation dan schema migrations tidak membuat admin account. Jalankan `npm run db:bootstrap` sesuai runbook. E2E seed hanya digunakan untuk test environments.
 
-## Command setup
+## Initial setup
+
+Salin environment template, lalu isi database URLs dan credentials sebelum menjalankan setup commands.
 
 ```bash
 cp .env.example .env.local
-# Isi credential dan URL database di .env.local sebelum melanjutkan.
 npm ci
 npm run db:migrate
 npm run db2:init
 npm run db:bootstrap -- --help
 ```
 
-Bootstrap membaca password melalui stdin; lihat runbook untuk command lengkap. `db2:init` ditujukan untuk AUX kosong; database existing mengikuti prosedur migrasi/baseline di runbook. Semua CLI setup memakai loader env yang sama dengan Next.js, dengan process env sebagai prioritas tertinggi.
+Command terakhir menampilkan bootstrap options. Untuk membuat master data dan admin account, ikuti command lengkap di Engineering Runbook; bootstrap menerima password melalui stdin.
 
-## Menjalankan setelah setup selesai
+`db2:init` digunakan untuk database AUX kosong. Untuk existing database, ikuti migration dan baseline procedure di runbook.
+
+Seluruh setup CLI menggunakan environment loader yang sama dengan Next.js, dengan process environment variables sebagai prioritas tertinggi.
+
+## Running the application
+
+Setelah initial setup selesai, jalankan production build:
 
 ```bash
-npm ci
 npm run build
 npm start
 ```
 
-Untuk pengembangan kode:
+Untuk local development:
 
 ```bash
 npm run dev
 ```
 
-Gunakan production build untuk grading batch; restart/HMR dapat menghentikan background job.
+Gunakan production build saat menjalankan batch grading. Application restart dan development HMR dapat menghentikan background jobs.
 
-## Verifikasi
+## Verification
+
+Jalankan checks berikut untuk memverifikasi code quality, setup tooling, tests, dan production build:
 
 ```bash
 npm run lint
@@ -93,6 +101,10 @@ npm test -- --runInBand --coverage --ci
 npm run build
 ```
 
-## Data private
+Untuk end-to-end testing, ikuti [Playwright E2E guide](tests/e2e/README.md).
 
-File env asli, upload, backup, dan `docs/` tidak dibawa Git. Gunakan `.env.example` sebagai template dan simpan `.env.local` secara private. Dokumentasi engineer disimpan di `ops/` agar ikut version control.
+## Private data and local files
+
+Environment files yang berisi credentials, uploaded files, backups, dan direktori `docs/` tidak disertakan dalam version control.
+
+Gunakan `.env.example` sebagai configuration template dan simpan nilai environment lokal di `.env.local`. Engineering documentation yang perlu ikut version control tersedia di `ops/`.
