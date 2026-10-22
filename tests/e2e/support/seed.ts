@@ -32,7 +32,7 @@ export async function seedDatabase(): Promise<void> {
         'local/012_rag_tables.sql',
         'local/013_acs_local_tables.sql',
       ]) {
-        await db.query(await readFile(resolve(__dirname, '../../../db/aux', migration), 'utf8'));
+        await db.query(await readFile(resolve(__dirname, '../../../db/ai-db', migration), 'utf8'));
       }
       await db.query('COMMIT');
     } catch (error) {

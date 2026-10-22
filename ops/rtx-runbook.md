@@ -6,7 +6,7 @@ benchmark that checks whether the stack fits and how fast it grades.
 
 - Chat model: `qwen2.5:14b-instruct-q4_K_M`
 - Embedding model: `bge-m3` (1024 dims)
-- Databases: Postgres with pgvector. There are two of them: the LMS database (Prisma) and the aux AI database (`db/aux/`).
+- Databases: Postgres with pgvector. There are two of them: the LMS database (Prisma) and the aux AI database (`db/ai-db/`).
 - Reference run: Apple M4 Pro, 24 GB. Median grading call 17.3 s, 21 tok/s generation, 73 ms retrieval. Scores were exactly reproducible across runs with `seed: 0`.
 
 All VRAM figures below are estimates until the benchmark (step 9) measures them.
@@ -201,14 +201,14 @@ npx prisma migrate status          # "Database schema is up to date"
 ```bash
 npx prisma migrate deploy                         # LMS database
 # aux database: the 7 legacy files predate the runner and must be run by hand once
-for f in db/aux/00[1-7]_*.sql; do psql "$AUX_POSTGRES_URL" -v ON_ERROR_STOP=1 -f "$f"; done
-npm run db2:migrate -- --baseline                 # records them, then applies db/aux/local/*.sql
+for f in db/ai-db/00[1-7]_*.sql; do psql "$AUX_POSTGRES_URL" -v ON_ERROR_STOP=1 -f "$f"; done
+npm run db2:migrate -- --baseline                 # records them, then applies db/ai-db/local/*.sql
 ```
 
 PowerShell version of the loop:
 
 ```powershell
-Get-ChildItem db/aux/00[1-7]_*.sql | Sort-Object Name | ForEach-Object { psql $env:AUX_POSTGRES_URL -v ON_ERROR_STOP=1 -f $_.FullName }
+Get-ChildItem db/ai-db/00[1-7]_*.sql | Sort-Object Name | ForEach-Object { psql $env:AUX_POSTGRES_URL -v ON_ERROR_STOP=1 -f $_.FullName }
 ```
 
 ---

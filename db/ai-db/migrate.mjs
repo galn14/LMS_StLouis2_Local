@@ -10,15 +10,15 @@
  * silently mutated migration means two databases that claim the same version
  * but do not match, which is exactly the failure this table exists to prevent.
  *
- *   node db/aux/migrate.mjs --init      initialize a new empty AUX database
- *   node db/aux/migrate.mjs             apply everything pending
- *   node db/aux/migrate.mjs --baseline  record the 7 legacy files as applied
+ *   node db/ai-db/migrate.mjs --init      initialize a new empty AUX database
+ *   node db/ai-db/migrate.mjs             apply everything pending
+ *   node db/ai-db/migrate.mjs --baseline  record the 7 legacy files as applied
  *                                       (they predate this runner) without
  *                                       executing them
- *   node db/aux/migrate.mjs --status    show the ledger and exit
- *   node db/aux/migrate.mjs --dry-run   list what would run
+ *   node db/ai-db/migrate.mjs --status    show the ledger and exit
+ *   node db/ai-db/migrate.mjs --dry-run   list what would run
  *
- * Lives in db/aux/ rather than scripts/ because .gitignore excludes /scripts,
+ * Lives in db/ai-db/ rather than scripts/ because .gitignore excludes /scripts,
  * and schema migrations must be version controlled.
  */
 import { createHash } from 'node:crypto';

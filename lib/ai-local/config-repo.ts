@@ -62,7 +62,7 @@ export async function updateLocalAiConfig(patch: LocalAiConfigPatch): Promise<Lo
   );
   const row = rows[0];
   if (!row) {
-    throw new Error('local_ai_config row is missing; run db/aux/local/010_local_ai_config.sql');
+    throw new Error('local_ai_config row is missing; run db/ai-db/local/010_local_ai_config.sql');
   }
 
   generation++;

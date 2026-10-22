@@ -13,14 +13,14 @@
     "db:pull": "node scripts/env-run.mjs node_modules/prisma/build/index.js db pull",
     "db:push": "node scripts/env-run.mjs node_modules/prisma/build/index.js db push",
     "db:studio": "node scripts/env-run.mjs node_modules/prisma/build/index.js studio",
-    "db2:migrate": "node db/aux/migrate.mjs",
+    "db2:migrate": "node db/ai-db/migrate.mjs",
     "db2:migrate-supabase": "node scripts/migrate-db2-from-supabase.mjs",
     "test": "jest",
     "db:migrate": "node scripts/env-run.mjs node_modules/prisma/build/index.js migrate deploy",
     "db:status": "node scripts/env-run.mjs node_modules/prisma/build/index.js migrate status",
     "db:bootstrap": "node scripts/setup/bootstrap.mjs",
     "test:setup": "node --test scripts/setup/*.test.mjs",
-    "db2:init": "node db/aux/migrate.mjs --init",
+    "db2:init": "node db/ai-db/migrate.mjs --init",
     "env:run": "node scripts/env-run.mjs"
   },
   "dependencies": {

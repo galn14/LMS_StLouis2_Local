@@ -31,7 +31,7 @@ export interface LocalAiConfig {
   think: boolean | null;
 }
 
-/** Persisted `local_ai_config` singleton (`db/aux/local/010_local_ai_config.sql`). */
+/** Persisted `local_ai_config` singleton (`db/ai-db/local/010_local_ai_config.sql`). */
 export interface LocalAiConfigRow {
   base_url?: string | null;
   chat_model?: string | null;

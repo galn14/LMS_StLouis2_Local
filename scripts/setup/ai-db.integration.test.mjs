@@ -8,7 +8,7 @@ test('AUX init and target guards against real disposable databases', { skip: !ur
   const target = new URL(url);
   assert.ok(['127.0.0.1', 'localhost'].includes(target.hostname));
   assert.ok(target.pathname.endsWith('_aux_setup_test'));
-  const run = (args, connectionString = url) => spawnSync(process.execPath, ['db/aux/migrate.mjs', ...args], {
+  const run = (args, connectionString = url) => spawnSync(process.execPath, ['db/ai-db/migrate.mjs', ...args], {
     env: { ...process.env, NODE_ENV: 'test', AUX_POSTGRES_URL: connectionString }, encoding: 'utf8', timeout: 30000,
   });
   const client = new pg.Client({ connectionString: url });

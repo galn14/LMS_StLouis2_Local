@@ -49,7 +49,7 @@ Next.js -- filesystem --> prompts/         [versioned input]
 | Runtime | Gunakan **Node.js 24.x** untuk host baru; `pdfjs-dist` terpasang mensyaratkan `>=22.13.0 || >=24` |
 | Package manager | npm; instalasi deterministik melalui `package-lock.json` |
 | LMS database | PostgreSQL; schema di `prisma/`, diakses melalui Prisma dan raw SQL |
-| AUX database | PostgreSQL dengan `vector` dan `pgcrypto`; schema di `db/aux/` |
+| AUX database | PostgreSQL dengan `vector` dan `pgcrypto`; schema di `db/ai-db/` |
 | Local AI | Ollama HTTP API; chat dan embedding adalah dua model berbeda |
 | Cloud AI | OpenAI SDK; API key dari admin database atau env |
 | Authentication | NextAuth credentials + JWT; password bcrypt; session maksimum 24 jam |
@@ -131,7 +131,7 @@ npm ci
 .env.local                    konfigurasi host, private
 prisma/schema.prisma          schema LMS
 prisma/migrations/            migrasi LMS
-db/aux/                       migrasi AUX + runner
+db/ai-db/                       migrasi AUX + runner
 prompts/                      prompt grading
 public/uploads/               data runtime, persistent
 ops/                          dokumentasi operasional, versioned
@@ -158,7 +158,7 @@ Simpan hasil generator sebagai `NEXTAUTH_SECRET`. Edit `.env.local` menggunakan 
 |---|---|
 | Next.js | process env → `.env.<mode>.local` → `.env.local` → `.env.<mode>` → `.env`; `.env.local` dilewati pada test mode |
 | Prisma melalui `npm run db:*` | Wrapper memakai loader Next.js sebelum menjalankan Prisma; process env selalu menang |
-| AUX runner `db/aux/migrate.mjs` | Shared loader Next.js; process env → mode.local → local → mode → base |
+| AUX runner `db/ai-db/migrate.mjs` | Shared loader Next.js; process env → mode.local → local → mode → base |
 | Supabase migration script | Shared loader Next.js; process env selalu menang |
 | `psql`, `pg_dump` | Tidak membaca file dotenv aplikasi; gunakan libpq service / `.pgpass` atau env shell eksplisit |
 | Validation scripts | Benchmark dan setup-v3 memakai shared loader; script lain dapat dijalankan dengan `npm run env:run -- scripts/validation/NAMA_SCRIPT.mjs` |
@@ -1056,7 +1056,7 @@ Saat eskalasi, sertakan commit, Node version, provider, timestamp dengan timezon
 | Login dan session | `auth.ts`, `lib/db.ts`, `lib/hash.ts` |
 | TLS / raw DB | `lib/pg-ssl.ts`, `lib/database.ts`, `lib/lms-db.ts`, `lib/aux-db.ts` |
 | Schema LMS | `prisma/schema.prisma`, `prisma/migrations/` |
-| Schema AUX | `db/aux/*.sql`, `db/aux/local/*.sql`, `db/aux/migrate.mjs` |
+| Schema AUX | `db/ai-db/*.sql`, `db/ai-db/local/*.sql`, `db/ai-db/migrate.mjs` |
 | Roles/status lookup | `lib/enumeration-service.ts`, `app/api/admin/roles/route.ts` |
 | AI provider/config | `lib/ai/index.ts`, `lib/ai-config.ts`, `lib/ai-local/config.ts` |
 | Local cache/HTTP | `lib/ai-local/config-repo.ts`, `lib/ai-local/ollama-client.ts` |
