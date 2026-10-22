@@ -1,6 +1,27 @@
 # LMS St. Louis 2
 
-Learning Management System berbasis Next.js dengan automated grading dan plagiarism detection. AI provider: Ollama lokal atau OpenAI.
+Learning Management System berbasis Next.js dengan automated grading berbasis AI, retrieval-augmented generation (RAG) dengan embedding, dan plagiarism detection. AI provider: Ollama lokal atau OpenAI.
+
+## Asal proyek dan atribusi
+
+Proyek ini **bukan dibuat dari nol**. Aplikasi LMS dasarnya berasal dari repositori [Josesdio30/LMS_StLouis2](https://github.com/Josesdio30/LMS_StLouis2). Repositori ini melanjutkan dan mengembangkan basis tersebut; seluruh kredit atas LMS dasar menjadi milik pembuat aslinya.
+
+**Berasal dari repositori dasar** (sebagian kodenya diubah di sini):
+
+- Aplikasi LMS Next.js: autentikasi (NextAuth), peran pengguna, mata kuliah, kelas, tahun akademik, enrollment, sesi pembelajaran, materi dan resource, tugas, pengumpulan, penilaian manual, forum diskusi, dan panel admin.
+- Schema database LMS (Prisma) dan struktur UI dasar.
+
+**Ditambahkan dan dikembangkan di repositori ini:**
+
+- **Automated grading dengan AI** — penilaian jawaban terhadap rubrik melalui OpenAI atau model lokal (Ollama), dengan antrean batch, skor analitik per kriteria, skema keluaran terstruktur, dan dashboard AI.
+- **Backend RAG dengan embedding** — ingest materi (PDF, DOCX, PPTX, TXT, MD) ke korpus per tugas, chunking, deduplikasi berdasarkan checksum, penyimpanan vektor di PostgreSQL `pgvector`, dan retrieval passage terdekat sebagai konteks penilaian.
+- **Sitasi yang diverifikasi** — label sumber yang diklaim model dicocokkan dengan passage yang benar-benar diambil; sitasi yang tidak ada di konteks dibuang.
+- **Plagiarism detection berbasis embedding** — perbandingan kemiripan antar-pengumpulan, bukti, flag, dan ekspor hasil.
+- **Database AUX terpisah** (`db/ai-db/`) untuk konfigurasi AI, data RAG, dan tabel pendukung, lengkap dengan runner migrasi berledger checksum.
+- Konfigurasi AI dari admin, kontrol akses fitur, audit log, dan penyimpanan credential API terenkripsi.
+- Skrip setup yang dapat direproduksi, test suite (Jest dan Playwright E2E), CI GitHub Actions, serta runbook operasional di `ops/`.
+
+Lisensi dan catatan hak cipta ada di [LICENSE](LICENSE).
 
 ## Dokumentasi engineer
 
