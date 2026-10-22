@@ -18,7 +18,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 import { assertDatasetDigest, sha256File } from './lib/provenance.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -93,15 +93,20 @@ const INSTRUCTIONS = [
   ['Setelah selesai, kirimkan kembali file ini tanpa mengubah kolom "Kode".'],
 ];
 
-function main() {
+/** Append a worksheet of array-of-arrays rows (empty strings become blank cells) with the given column widths (in characters). */
+function addSheet(wb, name, rows, widths) {
+  const ws = wb.addWorksheet(name);
+  ws.addRows(rows.map(row => row.map(value => (value === '' ? null : value))));
+  widths.forEach((width, i) => { ws.getColumn(i + 1).width = width; });
+}
+
+async function main() {
   assertDatasetDigest('automated-grading', DATASET);
   const dataset = JSON.parse(fs.readFileSync(DATASET, 'utf8')).subjects;
   const random = rng(SEED);
-  const wb = XLSX.utils.book_new();
+  const wb = new ExcelJS.Workbook();
 
-  const info = XLSX.utils.aoa_to_sheet(INSTRUCTIONS);
-  info['!cols'] = [{ wch: 130 }];
-  XLSX.utils.book_append_sheet(wb, info, 'Petunjuk');
+  addSheet(wb, 'Petunjuk', INSTRUCTIONS, [130]);
 
   const manifest = { generated_at: new Date().toISOString(), seed: SEED, dataset_sha256: sha256File(DATASET), subjects: {} };
 
@@ -110,13 +115,11 @@ function main() {
     const guidePath = path.join(ROOT, 'public', s.grounding_file);
     const { text: guide, removed } = stripCalibrationSections(fs.readFileSync(guidePath, 'utf8'));
 
-    const guideSheet = XLSX.utils.aoa_to_sheet([
+    addSheet(wb, `Pedoman ${label}`, [
       [`Pedoman penilaian — ${label} (skor maksimal ${s.max_score})`],
       [''],
       ...guide.split('\n').map(line => [line]),
-    ]);
-    guideSheet['!cols'] = [{ wch: 110 }];
-    XLSX.utils.book_append_sheet(wb, guideSheet, `Pedoman ${label}`);
+    ], [110]);
 
     const partA = shuffle(s.answers.filter(a => a.set === 'calib' || a.set === 'final'), random);
     const partB = shuffle(s.answers.filter(a => a.set === 'pool'), random);
@@ -126,14 +129,12 @@ function main() {
     ];
 
     const header = ['No', 'Bagian', 'Kode', 'Jawaban siswa', `Skor (0-${s.max_score})`, 'Catatan'];
-    const sheet = XLSX.utils.aoa_to_sheet([
+    addSheet(wb, label, [
       [`${label} — Soal: ${s.question_text}`],
       [''],
       header,
       ...rows.map((r, i) => [i + 1, r.part, r.a.student_code, r.a.answer_text, '', '']),
-    ]);
-    sheet['!cols'] = [{ wch: 5 }, { wch: 13 }, { wch: 10 }, { wch: 100 }, { wch: 12 }, { wch: 40 }];
-    XLSX.utils.book_append_sheet(wb, sheet, label);
+    ], [5, 13, 10, 100, 12, 40]);
 
     manifest.subjects[subj] = {
       max_score: s.max_score,
@@ -146,9 +147,9 @@ function main() {
 
   fs.mkdirSync(OUT_DIR, { recursive: true });
   const outFile = path.join(OUT_DIR, 'lembar-penilaian-guru-2.xlsx');
-  XLSX.writeFile(wb, outFile);
+  await wb.xlsx.writeFile(outFile);
   fs.writeFileSync(path.join(OUT_DIR, 'manifest.json'), JSON.stringify(manifest, null, 2));
   console.error(`wrote ${path.relative(ROOT, outFile)} and manifest.json`);
 }
 
-main();
+await main();
